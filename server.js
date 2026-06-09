@@ -3,7 +3,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
-const https = require('https');
+const { Resend } = require('resend');
 
 const app = express();
 app.use(cors());
@@ -11,51 +11,22 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const REMINDERS_FILE = path.join(__dirname, 'reminders.json');
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Send via Gmail REST API (no SMTP, uses HTTPS only)
 async function sendText(message) {
-  return new Promise((resolve) => {
-    const user = process.env.GMAIL_USER;
-    const pass = process.env.GMAIL_PASS;
-    const to = process.env.TO_NUMBER + '@tmomail.net';
-
-    // Use Gmail API via fetch-style HTTPS
-    const emailContent = [
-      'From: ' + user,
-      'To: ' + to,
-      'Subject: reminder',
-      'Content-Type: text/plain',
-      '',
-      message
-    ].join('\r\n');
-
-    const encoded = Buffer.from(emailContent).toString('base64url');
-
-    // Get OAuth token using app password via SMTP over port 465 (SSL)
-    const nodemailer = require('nodemailer');
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: { user, pass },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
-    });
-
-    transporter.sendMail({
-      from: user,
-      to,
+  try {
+    await resend.emails.send({
+      from: 'reminders@resend.dev',
+      to: process.env.TO_NUMBER + '@tmomail.net',
       subject: 'reminder',
       text: message,
-    }).then(() => {
-      console.log('Sent:', message);
-      resolve({ success: true });
-    }).catch(err => {
-      console.error('Failed:', err.message);
-      resolve({ success: false, error: err.message });
     });
-  });
+    console.log('Sent:', message);
+    return { success: true };
+  } catch (err) {
+    console.error('Failed:', err.message);
+    return { success: false, error: err.message };
+  }
 }
 
 function loadReminders() {
