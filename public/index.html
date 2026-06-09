@@ -316,7 +316,7 @@
     btn.textContent = 'Adding...';
 
     try {
-      const res = await fetch('/api/reminders/delete', {
+      const res = await fetch('/api/reminders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month, day, label })
