@@ -80,7 +80,7 @@ app.post('/api/reminders', (req, res) => {
   res.json({ success: true, reminders: filtered });
 });
 
-app.delete('/api/reminders', (req, res) => {
+app.post('/api/reminders/delete', (req, res) => {
   const { month, day, label } = req.body;
   const reminders = loadReminders();
   const filtered = reminders.filter(r => !(r.month === month && r.day === day && r.label === label));
