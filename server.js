@@ -12,26 +12,29 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const REMINDERS_FILE = path.join(__dirname, 'reminders.json');
 
-// Send via Gmail SMTP → T-Mobile SMS gateway
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-});
+function getTransporter() {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_PASS,
+    },
+  });
+}
 
 async function sendText(message) {
   try {
-    await transporter.sendMail({
+    await getTransporter().sendMail({
       from: process.env.GMAIL_USER,
-      to: `${process.env.TO_NUMBER}@tmomail.net`,
-      subject: '',
+      to: process.env.TO_NUMBER + '@tmomail.net',
+      subject: ' ',
       text: message,
     });
-    console.log('📱 Sent:', message);
+    console.log('Sent:', message);
+    return { success: true };
   } catch (err) {
-    console.error('❌ Failed:', err.message);
+    console.error('Failed:', err.message);
+    return { success: false, error: err.message };
   }
 }
 
@@ -65,14 +68,20 @@ app.delete('/api/reminders', (req, res) => {
   res.json({ success: true, reminders: filtered });
 });
 
+// Test endpoint
+app.post('/api/test', async (req, res) => {
+  const result = await sendText('Your reminder system is working!');
+  res.json(result);
+});
+
 // Daily cron at 8am PST
 cron.schedule('0 8 * * *', () => {
   const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
   const month = pst.getMonth() + 1;
   const day = pst.getDate();
   const todays = loadReminders().filter(r => r.month === month && r.day === day);
-  todays.forEach(r => sendText(`Reminder: ${r.label}`));
+  todays.forEach(r => sendText('Reminder: ' + r.label));
 }, { timezone: 'America/Los_Angeles' });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Reminder system running on port ${PORT}`));
+app.listen(PORT, () => console.log('Reminder system running on port ' + PORT));
