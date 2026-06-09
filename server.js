@@ -1,16 +1,39 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
 const https = require('https');
+const { Pool } = require('pg');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const REMINDERS_FILE = path.join(__dirname, 'reminders.json');
+// Postgres connection (Railway provides DATABASE_URL automatically)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+// Create table if it doesn't exist
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reminders (
+      id SERIAL PRIMARY KEY,
+      month INTEGER NOT NULL,
+      day INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      UNIQUE(month, day, label)
+    )
+  `);
+  console.log('DB ready');
+}
+
+async function loadReminders() {
+  const result = await pool.query('SELECT month, day, label FROM reminders ORDER BY month, day');
+  return result.rows;
+}
 
 async function sendNotification(message) {
   return new Promise((resolve) => {
@@ -38,54 +61,46 @@ async function sendNotification(message) {
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
         const parsed = JSON.parse(data);
-        if (parsed.status === 1) {
-          console.log('Sent:', message);
-          resolve({ success: true });
-        } else {
-          console.error('Failed:', data);
-          resolve({ success: false, error: data });
-        }
+        if (parsed.status === 1) { console.log('Sent:', message); resolve({ success: true }); }
+        else { console.error('Failed:', data); resolve({ success: false, error: data }); }
       });
     });
-
-    req.on('error', (err) => {
-      console.error('Error:', err.message);
-      resolve({ success: false, error: err.message });
-    });
-
+    req.on('error', (err) => resolve({ success: false, error: err.message }));
     req.write(params);
     req.end();
   });
 }
 
-function loadReminders() {
-  try { return JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')); }
-  catch { return []; }
-}
-
-function saveReminders(reminders) {
-  fs.writeFileSync(REMINDERS_FILE, JSON.stringify(reminders, null, 2));
-}
-
-app.get('/api/reminders', (req, res) => res.json(loadReminders()));
-
-app.post('/api/reminders', (req, res) => {
-  const { month, day, label } = req.body;
-  if (!month || !day || !label) return res.status(400).json({ error: 'Missing fields' });
-  const reminders = loadReminders();
-  const filtered = reminders.filter(r => !(r.month === month && r.day === day && r.label === label));
-  filtered.push({ month, day, label });
-  filtered.sort((a, b) => a.month !== b.month ? a.month - b.month : a.day - b.day);
-  saveReminders(filtered);
-  res.json({ success: true, reminders: filtered });
+app.get('/api/reminders', async (req, res) => {
+  try {
+    res.json(await loadReminders());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.post('/api/reminders/delete', (req, res) => {
+app.post('/api/reminders', async (req, res) => {
   const { month, day, label } = req.body;
-  const reminders = loadReminders();
-  const filtered = reminders.filter(r => !(r.month === month && r.day === day && r.label === label));
-  saveReminders(filtered);
-  res.json({ success: true, reminders: filtered });
+  if (!month || !day || !label) return res.status(400).json({ error: 'Missing fields' });
+  try {
+    await pool.query(
+      'INSERT INTO reminders (month, day, label) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+      [month, day, label]
+    );
+    res.json({ success: true, reminders: await loadReminders() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/reminders/delete', async (req, res) => {
+  const { month, day, label } = req.body;
+  try {
+    await pool.query('DELETE FROM reminders WHERE month=$1 AND day=$2 AND label=$3', [month, day, label]);
+    res.json({ success: true, reminders: await loadReminders() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/test', async (req, res) => {
@@ -93,12 +108,13 @@ app.post('/api/test', async (req, res) => {
   res.json(result);
 });
 
-cron.schedule('0 8 * * *', () => {
+cron.schedule('0 8 * * *', async () => {
   const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
   const month = pst.getMonth() + 1;
   const day = pst.getDate();
-  loadReminders().filter(r => r.month === month && r.day === day).forEach(r => sendNotification('Reminder: ' + r.label));
+  const reminders = await loadReminders();
+  reminders.filter(r => r.month === month && r.day === day).forEach(r => sendNotification('Reminder: ' + r.label));
 }, { timezone: 'America/Los_Angeles' });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Reminder system running on port ' + PORT));
+initDB().then(() => app.listen(PORT, () => console.log('Reminder system running on port ' + PORT)));
