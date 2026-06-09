@@ -13,12 +13,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 const REMINDERS_FILE = path.join(__dirname, 'reminders.json');
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-async function sendText(message) {
+async function sendReminder(message) {
   try {
     await resend.emails.send({
-      from: 'reminders@resend.dev',
-      to: process.env.TO_NUMBER + '@tmomail.net',
-      subject: 'reminder',
+      from: 'onboarding@resend.dev',
+      to: process.env.TO_EMAIL,
+      subject: '🔔 ' + message,
       text: message,
     });
     console.log('Sent:', message);
@@ -60,7 +60,7 @@ app.delete('/api/reminders', (req, res) => {
 });
 
 app.post('/api/test', async (req, res) => {
-  const result = await sendText('Your reminder system is working!');
+  const result = await sendReminder('Your reminder system is working!');
   res.json(result);
 });
 
@@ -68,7 +68,7 @@ cron.schedule('0 8 * * *', () => {
   const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
   const month = pst.getMonth() + 1;
   const day = pst.getDate();
-  loadReminders().filter(r => r.month === month && r.day === day).forEach(r => sendText('Reminder: ' + r.label));
+  loadReminders().filter(r => r.month === month && r.day === day).forEach(r => sendReminder('Reminder: ' + r.label));
 }, { timezone: 'America/Los_Angeles' });
 
 const PORT = process.env.PORT || 3000;
