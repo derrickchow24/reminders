@@ -316,7 +316,7 @@
     btn.textContent = 'Adding...';
 
     try {
-      const res = await fetch('/api/reminders', {
+      const res = await fetch('/api/reminders/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month, day, label })
@@ -337,8 +337,8 @@
 
   async function deleteReminder(month, day, label) {
     try {
-      const res = await fetch('/api/reminders', {
-        method: 'DELETE',
+      const res = await fetch('/api/reminders/delete', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month, day, label })
       });
