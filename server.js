@@ -16,6 +16,9 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+const fantasy = require('./fantasy/routes')(pool);
+app.use('/api/fantasy', fantasy);
+
 // Create table if it doesn't exist
 async function initDB() {
   await pool.query(`
@@ -27,6 +30,7 @@ async function initDB() {
       UNIQUE(month, day, label)
     )
   `);
+  await fantasy.init();
   console.log('DB ready');
 }
 

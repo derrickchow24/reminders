@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fantasy HQ</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #0f0f0f;
+      color: #f0f0f0;
+      padding: 48px 16px;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; }
+
+    .header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
+    .header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; }
+    .header p { font-size: 14px; color: #888; margin-top: 6px; }
+
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .tab {
+      background: #1a1a1a; border: 1px solid #2a2a2a; color: #aaa;
+      padding: 8px 14px; border-radius: 8px; font: inherit; font-size: 14px; cursor: pointer;
+    }
+    .tab.active { background: #fff; color: #0f0f0f; border-color: #fff; font-weight: 600; }
+
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 20px; }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat .label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; color: #888; font-weight: 500; font-size: 12px; text-transform: uppercase; padding: 8px; border-bottom: 1px solid #2a2a2a; white-space: nowrap; }
+    td { padding: 10px 8px; border-bottom: 1px solid #222; white-space: nowrap; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .bench td { color: #999; }
+
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; }
+    .badge.ACTIVE { display: none; }
+    .badge.QUESTIONABLE { background: #3d3410; color: #f5c84b; }
+    .badge.DOUBTFUL, .badge.OUT, .badge.INJURY_RESERVE, .badge.SUSPENSION { background: #3d1515; color: #ff6b6b; }
+    .up { color: #4ade80; }
+    .down { color: #ff6b6b; }
+
+    .btn {
+      background: #fff; color: #0f0f0f; border: none; border-radius: 8px;
+      padding: 10px 16px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+
+    .report { line-height: 1.6; font-size: 15px; }
+    .report h2 { font-size: 18px; margin: 24px 0 8px; }
+    .report h2:first-child { margin-top: 0; }
+    .report ul, .report ol { padding-left: 20px; }
+    .report li { margin: 6px 0; }
+    .report a { color: #8ab4ff; }
+    .report strong { color: #fff; }
+
+    .muted { color: #888; font-size: 14px; }
+    .error { color: #ff6b6b; font-size: 14px; margin-top: 12px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1 id="title">Fantasy HQ</h1>
+        <p id="subtitle">Loading your league…</p>
+      </div>
+      <button class="btn" id="refresh">Generate new report</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="report">Agent Report</button>
+      <button class="tab" data-tab="roster">My Team</button>
+      <button class="tab" data-tab="fa">Free Agents</button>
+    </div>
+
+    <section id="tab-report">
+      <div class="card">
+        <p class="muted" id="report-meta"></p>
+        <div class="report" id="report"></div>
+        <p class="error" id="report-error"></p>
+      </div>
+    </section>
+
+    <section id="tab-roster" class="hidden">
+      <div class="stats" id="stats"></div>
+      <div class="card table-wrap"><table id="roster"></table></div>
+    </section>
+
+    <section id="tab-fa" class="hidden">
+      <div class="card table-wrap"><table id="fa"></table></div>
+    </section>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const fmt = n => n == null ? '–' : n;
+    const SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'OP', 'D/ST', 'K', 'Bench', 'IR'];
+
+    document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b === btn));
+      ['report', 'roster', 'fa'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
+    }));
+
+    function injury(p) {
+      return `<span class="badge ${esc(p.injuryStatus)}">${esc(p.injuryStatus.replace('_', ' '))}</span>`;
+    }
+
+    async function loadTeam() {
+      const res = await fetch('/api/fantasy/team');
+      const data = await res.json();
+      if (!res.ok) { $('subtitle').textContent = data.error; return; }
+      $('title').textContent = data.team.name;
+      $('subtitle').textContent = `${data.league} · Week ${data.week} · ${data.scoring}`;
+      const t = data.team;
+      $('stats').innerHTML = [
+        ['Record', `${t.wins}-${t.losses}${t.ties ? '-' + t.ties : ''}`],
+        ['Standing', t.standing ? '#' + t.standing : '–'],
+        ['Points for', fmt(t.pointsFor)],
+        ['Points against', fmt(t.pointsAgainst)],
+      ].map(([l, v]) => `<div class="card stat"><div class="label">${l}</div><div class="value">${esc(v)}</div></div>`).join('');
+
+      const roster = [...data.roster].sort((a, b) => SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot));
+      $('roster').innerHTML = `<tr><th>Slot</th><th>Player</th><th>Pos</th><th>Team</th><th class="num">Proj</th><th class="num">Avg</th><th class="num">Total</th><th class="num">% Own</th></tr>` +
+        roster.map(p => `<tr class="${p.slot === 'Bench' || p.slot === 'IR' ? 'bench' : ''}">
+          <td>${esc(p.slot)}</td><td>${esc(p.name)} ${injury(p)}</td><td>${esc(p.position)}</td><td>${esc(p.proTeam)}</td>
+          <td class="num">${fmt(p.projectedPoints)}</td><td class="num">${fmt(p.avgPoints)}</td><td class="num">${fmt(p.seasonPoints)}</td><td class="num">${fmt(p.percentOwned)}</td>
+        </tr>`).join('');
+    }
+
+    async function loadFreeAgents() {
+      const res = await fetch('/api/fantasy/free-agents');
+      const data = await res.json();
+      if (!res.ok) { $('fa').innerHTML = `<tr><td class="error">${esc(data.error)}</td></tr>`; return; }
+      // Biggest ownership risers first: the "trending adds" view
+      data.sort((a, b) => (b.percentChange ?? 0) - (a.percentChange ?? 0));
+      $('fa').innerHTML = `<tr><th>Player</th><th>Pos</th><th>Team</th><th>Status</th><th class="num">Avg</th><th class="num">% Own</th><th class="num">Δ 7d</th></tr>` +
+        data.map(p => `<tr>
+          <td>${esc(p.name)} ${injury(p)}</td><td>${esc(p.position)}</td><td>${esc(p.proTeam)}</td><td>${esc(p.status === 'WAIVERS' ? 'Waivers' : 'FA')}</td>
+          <td class="num">${fmt(p.avgPoints)}</td><td class="num">${fmt(p.percentOwned)}</td>
+          <td class="num ${p.percentChange > 0 ? 'up' : p.percentChange < 0 ? 'down' : ''}">${p.percentChange > 0 ? '+' : ''}${fmt(p.percentChange)}</td>
+        </tr>`).join('');
+    }
+
+    let polling;
+    async function loadReport() {
+      const res = await fetch('/api/fantasy/report');
+      const data = await res.json();
+      $('refresh').disabled = data.generating;
+      $('refresh').textContent = data.generating ? 'Agent is researching…' : 'Generate new report';
+      $('report-error').textContent = data.error || '';
+      if (data.report) {
+        $('report-meta').textContent = `Week ${data.report.week} · generated ${new Date(data.report.created_at).toLocaleString()}`;
+        $('report').innerHTML = DOMPurify.sanitize(marked.parse(data.report.markdown));
+      } else {
+        $('report-meta').textContent = data.generating ? 'Generating your first report — this takes a minute or two.' : 'No report yet. Click "Generate new report".';
+      }
+      clearTimeout(polling);
+      if (data.generating) polling = setTimeout(loadReport, 5000);
+    }
+
+    $('refresh').addEventListener('click', async () => {
+      await fetch('/api/fantasy/report', { method: 'POST' });
+      loadReport();
+    });
+
+    loadReport();
+    loadTeam();
+    loadFreeAgents();
+  </script>
+</body>
+</html>
